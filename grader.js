@@ -20,10 +20,12 @@ References:
    - https://developer.mozilla.org/en-US/docs/JSON
    - https://developer.mozilla.org/en-US/docs/JSON#JSON_in_Firefox_2
 */
-
+var sys = require('util');
+var rest = require('restler');
 var fs = require('fs');
 var program = require('commander');
 var cheerio = require('cheerio');
+
 var HTMLFILE_DEFAULT = "index.html";
 var CHECKSFILE_DEFAULT = "checks.json";
 
@@ -38,8 +40,22 @@ var assertFileExists = function(infile) {
 
 var cheerioHtmlFile = function(htmlfile) {
     return cheerio.load(fs.readFileSync(htmlfile));
-};
+}
 
+/*var cheerioUrlFile = function(urlfile) {
+    return cheerio.load(rest.get(urlfile.toString()));
+}
+var cheerioUrlFile = function(urlfile) {
+    rest.get(program.url).on('complete', function(result) {
+	if (result instanceof Error) {
+	    sys.puts('Error: ' + result.message);
+	    this.retry(5000); // try again after 5 sec
+	} else {
+	    return sys.puts(result);
+	}
+    });
+}
+*/
 var loadChecks = function(checksfile) {
     return JSON.parse(fs.readFileSync(checksfile));
 };
@@ -55,9 +71,8 @@ var checkHtmlFile = function(htmlfile, checksfile) {
     return out;
 };
 
+
 var clone = function(fn) {
-    // Workaround for commander.js issue.
-    // http://stackoverflow.com/a/6772648
     return fn.bind({});
 };
 
@@ -65,10 +80,29 @@ if(require.main == module) {
     program
         .option('-c, --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
         .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
+        .option('-u, --url <url_location>', 'URL to remote index.html')
         .parse(process.argv);
-    var checkJson = checkHtmlFile(program.file, program.checks);
-    var outJson = JSON.stringify(checkJson, null, 4);
-    console.log(outJson);
+    if (program.url && program.file!=HTMLFILE_DEFAULT) {
+	console.log('Insert either a file or a URL as input parameters.');
+	process.exit(1);
+    }
+    if (program.url) {
+	rest.get(program.url).on('complete', function(result) {
+	    if (result instanceof Error) {
+		sys.puts('Error: ' + result.message);
+		this.retry(5000); // try again after 5 sec
+            } else {
+ 		fs.writeFileSync("urlfiletmp.html", result);   // Added this line
+		var checkJson = checkHtmlFile("urlfiletmp.html", program.checks);
+		var outJson = JSON.stringify(checkJson, null, 4);
+		console.log('Remote html file checks:\n',outJson);
+	    }
+	    });
+	 } else {
+	var checkJson = checkHtmlFile(program.file, program.checks);
+	var outJson = JSON.stringify(checkJson, null, 4);
+	console.log('Local html file checks:\n',outJson);
+    }
 } else {
     exports.checkHtmlFile = checkHtmlFile;
 }
